@@ -135,7 +135,7 @@
     <button class="btn btn-secondary" onclick="downloadResultImage()">Download Result as Image</button>
   </div>
 
-  <div class="error-box" id="errorBox">Invalid or Corrupted Identity Code</div>
+  <div class="error-box" id="errorBox"></div>
 </div>
 
 <!-- ===================== GATE LOG ===================== -->
@@ -289,13 +289,20 @@ function renderResult(cipherResult, extra){
   document.getElementById('errorBox').classList.remove('show');
 }
 
+function showError(msg){
+  const errorBox = document.getElementById('errorBox');
+  errorBox.textContent = msg;
+  errorBox.classList.add('show');
+  document.getElementById('resultBox').classList.remove('show');
+}
+
 function decodeIdentity(){
   const raw = document.getElementById('code').value;
   document.getElementById('resultBox').classList.remove('show');
   document.getElementById('errorBox').classList.remove('show');
   const cipherResult = decodeCipher(raw);
   if (!cipherResult){
-    document.getElementById('errorBox').classList.add('show');
+    showError('Invalid or Corrupted Identity Code');
     return;
   }
   renderResult(cipherResult, null);
@@ -411,7 +418,7 @@ function handleGalleryImage(event){
       if (code && code.data){
         handleScannedText(code.data);
       } else {
-        showToast('No QR code found in that image.');
+        showError('No QR code found in that image. Try a clearer, well-lit, straight-on photo of just the QR square.');
       }
     };
     img.onerror = function(){ showToast('Could not read that image file.'); };
@@ -436,12 +443,13 @@ function handleScannedText(text){
 
   const cipherResult = decodeCipher(idCode);
   if (!cipherResult){
-    showToast('QR read, but the code failed the integrity check.');
-    requestAnimationFrame(scanLoop);
+    showError('QR code found, but it failed the integrity check. This may not be an Aekonkar Welfare Association ID QR, or the code was misread — try again with better lighting.');
+    if (scanning) requestAnimationFrame(scanLoop);
     return;
   }
 
   stopScan();
+  document.getElementById('errorBox').classList.remove('show');
   document.getElementById('code').value = idCode;
   renderResult(cipherResult, { name, phone, valid });
 
