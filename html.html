@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Identity Decoder &amp; Gate Log</title>
+<style>
+  :root{
+    --bg:#0f172a; --card:#1e293b; --accent:#38bdf8; --accent2:#34d399;
+    --text:#f1f5f9; --muted:#94a3b8; --danger:#f87171; --warn:#f59e0b;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text);display:flex;flex-direction:column;align-items:center;padding:24px 16px 60px;}
+  .card{width:100%;max-width:480px;background:var(--card);border-radius:18px;padding:24px 20px;box-shadow:0 10px 30px rgba(0,0,0,0.4);margin-bottom:16px;}
+  h1{font-size:1.4rem;text-align:center;margin:0 0 4px;}
+  h2{font-size:1.05rem;margin:0 0 12px;}
+  .subtitle{text-align:center;color:var(--muted);font-size:0.85rem;margin-bottom:20px;}
+  label{display:block;font-size:0.85rem;color:var(--muted);margin:14px 0 6px;}
+  input[type=text]{width:100%;padding:12px 14px;border-radius:10px;border:1px solid #334155;background:#0f172a;color:var(--text);font-size:1rem;letter-spacing:1px;}
+  input:focus{outline:2px solid var(--accent);}
+  .btn{width:100%;padding:14px;border:none;border-radius:12px;font-size:1rem;font-weight:600;margin-top:12px;cursor:pointer;}
+  .btn-primary{background:var(--accent);color:#04202e;}
+  .btn-secondary{background:#334155;color:var(--text);}
+  .btn-success{background:var(--accent2);color:#04241a;}
+  .btn-danger{background:transparent;color:var(--danger);border:1px solid var(--danger);}
+  .btn-row{display:flex;gap:10px;}
+  .btn-row .btn{margin-top:12px;}
+  .result-box{margin-top:22px;background:#0f172a;border:1px dashed var(--accent2);border-radius:12px;padding:16px;display:none;}
+  .result-box.show{display:block;}
+  .result-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #1f2937;font-size:0.9rem;gap:10px;}
+  .result-row:last-child{border-bottom:none;}
+  .result-row span:first-child{color:var(--muted);flex-shrink:0;}
+  .result-row span:last-child{font-weight:600;color:var(--accent2);text-align:right;word-break:break-word;}
+  .error-box{margin-top:22px;background:#2a1414;border:1px solid var(--danger);border-radius:12px;padding:16px;text-align:center;color:var(--danger);font-weight:600;display:none;}
+  .error-box.show{display:block;}
+  .note{font-size:0.75rem;color:var(--muted);margin-top:10px;text-align:center;}
+  .divider{display:flex;align-items:center;gap:10px;margin:18px 0;color:var(--muted);font-size:0.78rem;text-transform:uppercase;letter-spacing:1px;}
+  .divider::before,.divider::after{content:"";flex:1;height:1px;background:#334155;}
+
+  /* ---- camera ---- */
+  .scan-area{display:none;margin-top:14px;}
+  .scan-area.show{display:block;}
+  .video-wrap{position:relative;border-radius:14px;overflow:hidden;background:#000;aspect-ratio:1/1;}
+  video{width:100%;height:100%;object-fit:cover;display:block;}
+  .scan-frame{position:absolute;inset:12%;border:3px solid var(--accent2);border-radius:16px;box-shadow:0 0 0 999px rgba(0,0,0,.35);pointer-events:none;}
+  .scan-hint{text-align:center;font-size:0.8rem;color:var(--muted);margin-top:8px;}
+  .cam-unsupported{display:none;background:#2a1414;border:1px solid var(--danger);border-radius:12px;padding:14px;font-size:0.82rem;color:var(--danger);text-align:center;margin-top:14px;}
+  .cam-unsupported.show{display:block;}
+
+  /* ---- confirm-log panel ---- */
+  .confirm-box{display:none;margin-top:18px;background:#0f172a;border:2px solid var(--accent);border-radius:14px;padding:18px;}
+  .confirm-box.show{display:block;}
+  .confirm-name{font-size:1.1rem;font-weight:700;margin-bottom:2px;}
+  .confirm-sub{font-size:0.82rem;color:var(--muted);margin-bottom:14px;}
+  .direction-toggle{display:flex;gap:10px;margin-top:10px;}
+  .dir-opt{flex:1;padding:14px;border-radius:10px;text-align:center;font-weight:700;font-size:0.95rem;border:2px solid #334155;cursor:pointer;background:#1e293b;color:var(--muted);}
+  .dir-opt.selected.in{border-color:var(--accent2);color:var(--accent2);background:rgba(52,211,153,.1);}
+  .dir-opt.selected.out{border-color:var(--warn);color:var(--warn);background:rgba(245,158,11,.1);}
+
+  .toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#1e293b;border:1px solid var(--accent2);color:var(--text);padding:12px 20px;border-radius:10px;font-size:0.88rem;opacity:0;transition:opacity 0.3s;pointer-events:none;z-index:100;max-width:90vw;text-align:center;}
+  .toast.show{opacity:1;}
+
+  /* ---- gate log ---- */
+  .log-summary{display:flex;gap:10px;margin-bottom:14px;}
+  .log-stat{flex:1;background:#0f172a;border-radius:10px;padding:10px;text-align:center;}
+  .log-stat .n{font-size:1.3rem;font-weight:800;}
+  .log-stat .l{font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;}
+  #logTableWrap{max-height:340px;overflow-y:auto;border-radius:10px;}
+  table{width:100%;border-collapse:collapse;font-size:0.82rem;}
+  th{text-align:left;color:var(--muted);font-size:0.7rem;text-transform:uppercase;letter-spacing:.5px;padding:8px 6px;position:sticky;top:0;background:var(--card);}
+  td{padding:8px 6px;border-top:1px solid #1f2937;}
+  .dir-pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:0.72rem;font-weight:700;}
+  .dir-pill.in{background:rgba(52,211,153,.15);color:var(--accent2);}
+  .dir-pill.out{background:rgba(245,158,11,.15);color:var(--warn);}
+  .log-empty{text-align:center;color:var(--muted);font-size:0.85rem;padding:24px 10px;}
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h1>Identity Decoder</h1>
+  <div class="subtitle">Restricted use — local body records only</div>
+
+  <div class="btn-row">
+    <button class="btn btn-primary" id="scanToggleBtn" onclick="toggleScan()" style="margin-top:0;">&#128247; Scan QR Code</button>
+    <button class="btn btn-secondary" onclick="document.getElementById('galleryInput').click()" style="margin-top:0;">&#128193; From Gallery</button>
+  </div>
+  <input type="file" id="galleryInput" accept="image/*" style="display:none;" onchange="handleGalleryImage(event)">
+  <div class="scan-hint" id="scanStatus" style="display:none;">&#128269; Scanning image for the QR code — checking full photo and zoomed-in regions, this can take a few seconds…</div>
+  <div class="cam-unsupported" id="camUnsupported">Camera scanning needs HTTPS and a browser with camera access (Samsung Internet or Chrome work well). You can still enter a code manually below.</div>
+
+  <div class="scan-area" id="scanArea">
+    <div class="video-wrap">
+      <video id="video" playsinline autoplay muted></video>
+      <div class="scan-frame"></div>
+    </div>
+    <div class="scan-hint">Point the camera at the QR code on the ID card</div>
+    <button class="btn btn-secondary" onclick="stopScan()">Stop Camera</button>
+  </div>
+
+  <div class="confirm-box" id="confirmBox">
+    <div class="confirm-name" id="confirmName">—</div>
+    <div class="confirm-sub" id="confirmSub">—</div>
+    <label style="margin-top:0;">Log this as:</label>
+    <div class="direction-toggle">
+      <div class="dir-opt" id="dirIn" onclick="setDirection('IN')">&#8594; ENTRY</div>
+      <div class="dir-opt" id="dirOut" onclick="setDirection('OUT')">&#8592; EXIT</div>
+    </div>
+    <button class="btn btn-success" onclick="confirmLog()">Confirm &amp; Log</button>
+    <button class="btn btn-secondary" onclick="cancelConfirm()">Cancel / Rescan</button>
+  </div>
+
+  <div class="divider">or enter manually</div>
+
+  <label for="code">Encrypted Identity Code</label>
+  <input type="text" id="code" placeholder="e.g. ABCD-EFGH-...">
+
+  <div class="btn-row">
+    <button class="btn btn-primary" onclick="decodeIdentity()">Decode</button>
+    <button class="btn btn-danger" onclick="clearForm()">Clear</button>
+  </div>
+
+  <div class="result-box" id="resultBox">
+    <div class="result-row" id="row-name" style="display:none;"><span>Name</span><span id="r-name"></span></div>
+    <div class="result-row" id="row-phone" style="display:none;"><span>Phone</span><span id="r-phone"></span></div>
+    <div class="result-row" id="row-valid" style="display:none;"><span>Valid Till</span><span id="r-valid"></span></div>
+    <div class="result-row"><span>Date of Birth</span><span id="r-dob"></span></div>
+    <div class="result-row"><span>First 3 Letters of Name</span><span id="r-first3"></span></div>
+    <div class="result-row"><span>Length of Name</span><span id="r-namelen"></span></div>
+    <div class="result-row"><span>Last Letter of Name</span><span id="r-lastletter"></span></div>
+    <div class="result-row"><span>Father's Initial</span><span id="r-father"></span></div>
+    <div class="result-row"><span>Length of Father's Name</span><span id="r-fatherlen"></span></div>
+    <div class="result-row"><span>Last Letter of Father's Name</span><span id="r-fatherlast"></span></div>
+    <div class="result-row"><span>Grandfather's Initial</span><span id="r-grandfather"></span></div>
+    <div class="result-row"><span>Integrity Check</span><span id="r-checksum"></span></div>
+    <button class="btn btn-secondary" onclick="downloadResultImage()">Download Result as Image</button>
+  </div>
+
+  <div class="error-box" id="errorBox"></div>
+</div>
+
+<!-- ===================== GATE LOG ===================== -->
+<div class="card" id="gateLogCard">
+  <h2>Gate Log — Entry / Exit</h2>
+  <div class="log-summary">
+    <div class="log-stat"><div class="n" id="statIn">0</div><div class="l">Inside now</div></div>
+    <div class="log-stat"><div class="n" id="statToday">0</div><div class="l">Scans today</div></div>
+  </div>
+  <div id="logTableWrap">
+    <table id="logTable" style="display:none;">
+      <thead><tr><th>Name</th><th>ID</th><th>Dir.</th><th>Time</th></tr></thead>
+      <tbody id="logTableBody"></tbody>
+    </table>
+    <div class="log-empty" id="logEmpty">No entries logged yet. Scan a card above to begin.</div>
+  </div>
+  <div class="btn-row">
+    <button class="btn btn-secondary" onclick="downloadLogImage()">Export Log as Image</button>
+    <button class="btn btn-danger" onclick="clearLog()">Clear Log</button>
+  </div>
+  <div class="note">Log is stored only on this device (browser local storage) — nothing is uploaded anywhere.</div>
+</div>
+
+<div class="toast" id="toast">Logged</div>
+<canvas id="scanCanvas" style="display:none;"></canvas>
+
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script>
+/* ============================================================
+   Mirrors identity-generator.html exactly. Field lengths (fixed,
+   must match generator):
+     DOB(6) + first3(3) + selfLen(1) + lastLetter(1) +
+     fatherInitial(1) + fatherLen(1) + fatherLastLetter(1) +
+     grandfatherInitial(1) + checksum(1) = 16 chars
+   Hyphens are cosmetic and stripped before decoding.
+   ============================================================ */
+
+const DIGIT_MAP = ['P','Q','R','S','T','U','V','W','X','Y']; // 0..9
+const EXPECTED_LENGTH = 16;
+const LOG_KEY = 'awa_gate_log';
+
+function atbash(letter){
+  const code = letter.toUpperCase().charCodeAt(0) - 65;
+  return String.fromCharCode((25 - code) + 65);
+}
+function letterToDigit(letter){ return DIGIT_MAP.indexOf(letter.toUpperCase()); }
+function decodeLetters(str){ return str.split('').map(atbash).join(''); }
+function decodeDigits(str){
+  let out = '';
+  for (const ch of str){
+    const d = letterToDigit(ch);
+    if (d === -1) return null;
+    out += d;
+  }
+  return out;
+}
+
+function formatDOB(yymmdd){
+  const yy = yymmdd.substring(0,2);
+  const mm = yymmdd.substring(2,4);
+  const dd = yymmdd.substring(4,6);
+  const currentYY = new Date().getFullYear() % 100;
+  const century = (parseInt(yy, 10) <= currentYY) ? 2000 : 1900;
+  return `${dd}/${mm}/${century + parseInt(yy, 10)}`;
+}
+
+function formatLength(digit){
+  return digit >= 9 ? '9+' : String(digit);
+}
+
+// Runs the cipher decode + checksum verification on a 16-char code.
+// Returns a result object, or null if invalid.
+function decodeCipher(rawCode){
+  const clean = rawCode.replace(/[^A-Za-z]/g, '').toUpperCase();
+  if (clean.length !== EXPECTED_LENGTH) return null;
+
+  try {
+    let pos = 0;
+    const dobDigits = decodeDigits(clean.substring(pos, pos + 6)); pos += 6;
+    if (dobDigits === null) return null;
+
+    const first3 = decodeLetters(clean.substring(pos, pos + 3)); pos += 3;
+
+    const selfLenDigit = letterToDigit(clean.charAt(pos)); pos += 1;
+    if (selfLenDigit === -1) return null;
+
+    const lastLetter = decodeLetters(clean.substring(pos, pos + 1)); pos += 1;
+    const fatherInitial = decodeLetters(clean.substring(pos, pos + 1)); pos += 1;
+
+    const fatherLenDigit = letterToDigit(clean.charAt(pos)); pos += 1;
+    if (fatherLenDigit === -1) return null;
+
+    const fatherLastLetter = decodeLetters(clean.substring(pos, pos + 1)); pos += 1;
+    const grandfatherInitial = decodeLetters(clean.substring(pos, pos + 1)); pos += 1;
+
+    const checksumDigit = letterToDigit(clean.charAt(pos)); pos += 1;
+    if (checksumDigit === -1) return null;
+
+    const monthNum = parseInt(dobDigits.substring(2,4), 10);
+    const dayNum = parseInt(dobDigits.substring(4,6), 10);
+    if (monthNum < 1 || monthNum > 12 || dayNum < 1 || dayNum > 31) return null;
+
+    const rawRecord = dobDigits + first3 + String(selfLenDigit) + lastLetter +
+                       fatherInitial + String(fatherLenDigit) + fatherLastLetter +
+                       grandfatherInitial;
+    let sum = 0;
+    for (const ch of rawRecord) sum += ch.charCodeAt(0);
+    const expectedChecksum = (sum % 9) + 1;
+    if (checksumDigit !== expectedChecksum) return null;
+
+    return {
+      dob: formatDOB(dobDigits),
+      first3, namelen: formatLength(selfLenDigit), lastLetter,
+      father: fatherInitial, fatherlen: formatLength(fatherLenDigit), fatherlast: fatherLastLetter,
+      grandfather: grandfatherInitial
+    };
+  } catch (e){
+    return null;
+  }
+}
+
+function renderResult(cipherResult, extra){
+  document.getElementById('r-dob').textContent = cipherResult.dob;
+  document.getElementById('r-first3').textContent = cipherResult.first3;
+  document.getElementById('r-namelen').textContent = cipherResult.namelen;
+  document.getElementById('r-lastletter').textContent = cipherResult.lastLetter;
+  document.getElementById('r-father').textContent = cipherResult.father;
+  document.getElementById('r-fatherlen').textContent = cipherResult.fatherlen;
+  document.getElementById('r-fatherlast').textContent = cipherResult.fatherlast;
+  document.getElementById('r-grandfather').textContent = cipherResult.grandfather;
+  document.getElementById('r-checksum').textContent = 'Passed';
+
+  const rowName = document.getElementById('row-name');
+  const rowPhone = document.getElementById('row-phone');
+  const rowValid = document.getElementById('row-valid');
+  if (extra && extra.name){
+    document.getElementById('r-name').textContent = extra.name;
+    rowName.style.display = 'flex';
+  } else rowName.style.display = 'none';
+  if (extra && extra.phone){
+    document.getElementById('r-phone').textContent = extra.phone;
+    rowPhone.style.display = 'flex';
+  } else rowPhone.style.display = 'none';
+  if (extra && extra.valid){
+    document.getElementById('r-valid').textContent = extra.valid;
+    rowValid.style.display = 'flex';
+  } else rowValid.style.display = 'none';
+
+  document.getElementById('resultBox').classList.add('show');
+  document.getElementById('errorBox').classList.remove('show');
+}
+
+function showError(msg){
+  const errorBox = document.getElementById('errorBox');
+  errorBox.textContent = msg;
+  errorBox.classList.add('show');
+  document.getElementById('resultBox').classList.remove('show');
+}
+
+function decodeIdentity(){
+  const raw = document.getElementById('code').value;
+  document.getElementById('resultBox').classList.remove('show');
+  document.getElementById('errorBox').classList.remove('show');
+  const cipherResult = decodeCipher(raw);
+  if (!cipherResult){
+    showError('Invalid or Corrupted Identity Code');
+    return;
+  }
+  renderResult(cipherResult, null);
+}
+
+function clearForm(){
+  document.getElementById('code').value = '';
+  document.getElementById('resultBox').classList.remove('show');
+  document.getElementById('errorBox').classList.remove('show');
+}
+
+function downloadResultImage(){
+  if (typeof html2canvas === 'undefined'){
+    alert('Image export library did not load — check your internet connection and try again.');
+    return;
+  }
+  html2canvas(document.getElementById('resultBox'), {scale:3, backgroundColor:'#0f172a'}).then(function(canvas){
+    const link = document.createElement('a');
+    link.download = 'decode-result-' + Date.now() + '.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  }).catch(function(err){ alert('Could not generate image: ' + err.message); });
+}
+
+/* ============================================================
+   Camera QR scanning
+   ============================================================ */
+let videoStream = null;
+let scanning = false;
+let pendingScan = null; // {id, name, phone, org, valid, cipherResult}
+
+function cameraSupported(){
+  return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+}
+
+function toggleScan(){
+  if (scanning){ stopScan(); return; }
+  if (!cameraSupported()){
+    document.getElementById('camUnsupported').classList.add('show');
+    return;
+  }
+  startScan();
+}
+
+function startScan(){
+  document.getElementById('camUnsupported').classList.remove('show');
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } })
+    .then(function(stream){
+      videoStream = stream;
+      const video = document.getElementById('video');
+      video.srcObject = stream;
+      video.setAttribute('playsinline', true);
+      video.play();
+      document.getElementById('scanArea').classList.add('show');
+      document.getElementById('scanToggleBtn').textContent = '&#9209; Stop Scanning';
+      document.getElementById('scanToggleBtn').innerHTML = '&#9209; Close Camera';
+      scanning = true;
+      requestAnimationFrame(scanLoop);
+    })
+    .catch(function(err){
+      document.getElementById('camUnsupported').classList.add('show');
+      document.getElementById('camUnsupported').textContent = 'Could not access the camera: ' + err.message;
+    });
+}
+
+function stopScan(){
+  scanning = false;
+  if (videoStream){
+    videoStream.getTracks().forEach(t => t.stop());
+    videoStream = null;
+  }
+  document.getElementById('scanArea').classList.remove('show');
+  document.getElementById('scanToggleBtn').innerHTML = '&#128247; Scan QR Code';
+}
+
+function scanLoop(){
+  if (!scanning) return;
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('scanCanvas');
+  if (video.readyState === video.HAVE_ENOUGH_DATA){
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
+    if (code && code.data){
+      handleScannedText(code.data);
+      return; // pause loop until user confirms / cancels
+    }
+  }
+  requestAnimationFrame(scanLoop);
+}
+
+/* ---- Multi-region still-image scan: tries the whole photo, then
+   progressively finer overlapping tiles, so a small QR sitting inside
+   a photo of the full ID card still gets found (effectively an
+   automatic digital zoom toward wherever the code is). ---- */
+
+function imageToCanvas(img){
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth;
+  c.height = img.naturalHeight;
+  c.getContext('2d').drawImage(img, 0, 0);
+  return c;
+}
+
+function cropCanvas(srcCanvas, x, y, w, h){
+  const c = document.createElement('canvas');
+  c.width = Math.round(w);
+  c.height = Math.round(h);
+  c.getContext('2d').drawImage(srcCanvas, x, y, w, h, 0, 0, c.width, c.height);
+  return c;
+}
+
+// Caps a canvas to a max side length so per-tile decode stays fast,
+// without losing enough resolution to read the QR's modules.
+function capResolution(canvas, maxDim){
+  const largest = Math.max(canvas.width, canvas.height);
+  if (largest <= maxDim) return canvas;
+  const scale = maxDim / largest;
+  const c = document.createElement('canvas');
+  c.width = Math.round(canvas.width * scale);
+  c.height = Math.round(canvas.height * scale);
+  c.getContext('2d').drawImage(canvas, 0, 0, c.width, c.height);
+  return c;
+}
+
+function decodeCanvas(canvas){
+  const ctx = canvas.getContext('2d');
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const result = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
+  return result && result.data ? result.data : null;
+}
+
+// Builds an NxN grid of overlapping tile rectangles covering W x H.
+function buildGridTiles(W, H, n, overlapFrac){
+  const baseW = W / n, baseH = H / n;
+  const tw = Math.min(W, baseW * (1 + overlapFrac));
+  const th = Math.min(H, baseH * (1 + overlapFrac));
+  const tiles = [];
+  for (let iy = 0; iy < n; iy++){
+    for (let ix = 0; ix < n; ix++){
+      let x = ix * baseW - (tw - baseW) / 2;
+      let y = iy * baseH - (th - baseH) / 2;
+      x = Math.max(0, Math.min(W - tw, x));
+      y = Math.max(0, Math.min(H - th, y));
+      tiles.push({ x, y, w: tw, h: th });
+    }
+  }
+  return tiles;
+}
+
+function scanImageForQR(img){
+  const full = imageToCanvas(img);
+
+  // 1. Whole image, resolution-capped for speed
+  let text = decodeCanvas(capResolution(full, 1600));
+  if (text) return text;
+
+  // 2. A slightly different downscale — jsQR's thresholding sometimes
+  //    catches a code at one resolution that it misses at another
+  text = decodeCanvas(capResolution(full, 900));
+  if (text) return text;
+
+  // 3. Overlapping quadrants, then overlapping ninths — each tile is
+  //    cropped from the full-resolution source, so the QR effectively
+  //    gets bigger and sharper the finer the grid gets
+  for (const n of [2, 3, 4]){
+    const tiles = buildGridTiles(full.width, full.height, n, 0.2);
+    for (const t of tiles){
+      if (t.w < 60 || t.h < 60) continue;
+      const tile = cropCanvas(full, t.x, t.y, t.w, t.h);
+      text = decodeCanvas(capResolution(tile, 1200));
+      if (text) return text;
+    }
+  }
+
+  return null;
+}
+
+function handleGalleryImage(event){
+  const file = event.target.files[0];
+  event.target.value = ''; // allow re-selecting the same file later
+  if (!file) return;
+
+  if (scanning) stopScan();
+
+  const statusEl = document.getElementById('scanStatus');
+  statusEl.style.display = 'block';
+  document.getElementById('errorBox').classList.remove('show');
+
+  const reader = new FileReader();
+  reader.onload = function(e){
+    const img = new Image();
+    img.onload = function(){
+      // Let the "scanning…" message actually paint before the
+      // synchronous tiled search runs and blocks the main thread.
+      setTimeout(function(){
+        let text = null;
+        try { text = scanImageForQR(img); }
+        catch (err){ /* fall through to not-found message */ }
+        statusEl.style.display = 'none';
+        if (text){
+          handleScannedText(text);
+        } else {
+          showError('No QR code found, even after checking the full photo and multiple zoomed-in regions. Try a straighter, closer, glare-free photo of the card.');
+        }
+      }, 30);
+    };
+    img.onerror = function(){ statusEl.style.display = 'none'; showToast('Could not read that image file.'); };
+    img.src = e.target.result;
+  };
+  reader.onerror = function(){ statusEl.style.display = 'none'; showToast('Could not read that image file.'); };
+  reader.readAsDataURL(file);
+}
+
+function handleScannedText(text){
+  let parsed = null;
+  try { parsed = JSON.parse(text); } catch (e){ parsed = null; }
+
+  let idCode, name, phone, org, valid;
+  if (parsed && parsed.t === 'AWA-ID' && parsed.id){
+    idCode = parsed.id; name = parsed.name; phone = parsed.phone;
+    org = parsed.org; valid = parsed.valid;
+  } else {
+    // Fall back: treat the raw scanned text as a plain cipher code
+    idCode = text;
+  }
+
+  const cipherResult = decodeCipher(idCode);
+  if (!cipherResult){
+    showError('QR code found, but it failed the integrity check. This may not be an Aekonkar Welfare Association ID QR, or the code was misread — try again with better lighting.');
+    if (scanning) requestAnimationFrame(scanLoop);
+    return;
+  }
+
+  stopScan();
+  document.getElementById('errorBox').classList.remove('show');
+  document.getElementById('code').value = idCode;
+  renderResult(cipherResult, { name, phone, valid });
+
+  pendingScan = { id: idCode.replace(/-/g,''), name: name || '(name not in code)', phone: phone || '', org: org || '' };
+  openConfirm(pendingScan);
+}
+
+/* ============================================================
+   Confirm & log entry/exit
+   ============================================================ */
+let selectedDirection = null;
+
+function getLog(){
+  try { return JSON.parse(localStorage.getItem(LOG_KEY)) || []; }
+  catch(e){ return []; }
+}
+function saveLog(log){ localStorage.setItem(LOG_KEY, JSON.stringify(log)); }
+
+function lastDirectionFor(id){
+  const log = getLog();
+  for (let i = log.length - 1; i >= 0; i--){
+    if (log[i].id === id) return log[i].direction;
+  }
+  return null;
+}
+
+function openConfirm(scan){
+  document.getElementById('confirmName').textContent = scan.name;
+  document.getElementById('confirmSub').textContent = 'ID ' + scan.id + (scan.phone ? ' · ' + scan.phone : '');
+  const suggested = lastDirectionFor(scan.id) === 'IN' ? 'OUT' : 'IN';
+  setDirection(suggested);
+  document.getElementById('confirmBox').classList.add('show');
+}
+
+function setDirection(dir){
+  selectedDirection = dir;
+  document.getElementById('dirIn').classList.toggle('selected', dir === 'IN');
+  document.getElementById('dirIn').classList.toggle('in', dir === 'IN');
+  document.getElementById('dirOut').classList.toggle('selected', dir === 'OUT');
+  document.getElementById('dirOut').classList.toggle('out', dir === 'OUT');
+}
+
+function cancelConfirm(){
+  document.getElementById('confirmBox').classList.remove('show');
+  pendingScan = null;
+  startScan();
+}
+
+function confirmLog(){
+  if (!pendingScan || !selectedDirection) return;
+  const log = getLog();
+  log.push({
+    id: pendingScan.id,
+    name: pendingScan.name,
+    phone: pendingScan.phone,
+    direction: selectedDirection,
+    ts: new Date().toISOString()
+  });
+  saveLog(log);
+  renderLog();
+  showToast((selectedDirection === 'IN' ? '\u2705 Entry' : '\ud83d\udeaa Exit') + ' logged for ' + pendingScan.name);
+  document.getElementById('confirmBox').classList.remove('show');
+  pendingScan = null;
+}
+
+function showToast(msg){
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 2200);
+}
+
+function renderLog(){
+  const log = getLog();
+  const body = document.getElementById('logTableBody');
+  const table = document.getElementById('logTable');
+  const empty = document.getElementById('logEmpty');
+
+  if (log.length === 0){
+    table.style.display = 'none';
+    empty.style.display = 'block';
+    document.getElementById('statIn').textContent = '0';
+    document.getElementById('statToday').textContent = '0';
+    return;
+  }
+
+  table.style.display = 'table';
+  empty.style.display = 'none';
+  body.innerHTML = '';
+
+  const reversed = log.slice().reverse();
+  for (const entry of reversed){
+    const d = new Date(entry.ts);
+    const timeStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td>' + escapeHtml(entry.name) + '</td>' +
+                    '<td>' + escapeHtml(entry.id) + '</td>' +
+                    '<td><span class="dir-pill ' + (entry.direction === 'IN' ? 'in' : 'out') + '">' + entry.direction + '</span></td>' +
+                    '<td>' + timeStr + '</td>';
+    body.appendChild(tr);
+  }
+
+  // Stats
+  const insideIds = new Set();
+  for (const entry of log){
+    if (entry.direction === 'IN') insideIds.add(entry.id);
+    else insideIds.delete(entry.id);
+  }
+  document.getElementById('statIn').textContent = String(insideIds.size);
+
+  const todayStr = new Date().toDateString();
+  const todayCount = log.filter(e => new Date(e.ts).toDateString() === todayStr).length;
+  document.getElementById('statToday').textContent = String(todayCount);
+}
+
+function escapeHtml(str){
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : String(str);
+  return div.innerHTML;
+}
+
+function clearLog(){
+  if (!confirm('Clear the entire gate log on this device? This cannot be undone.')) return;
+  localStorage.removeItem(LOG_KEY);
+  renderLog();
+}
+
+function downloadLogImage(){
+  if (typeof html2canvas === 'undefined'){
+    alert('Image export library did not load — check your internet connection and try again.');
+    return;
+  }
+  html2canvas(document.getElementById('gateLogCard'), {scale:2, backgroundColor:'#1e293b'}).then(function(canvas){
+    const link = document.createElement('a');
+    link.download = 'gate-log-' + new Date().toISOString().slice(0,10) + '.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  }).catch(function(err){ alert('Could not generate image: ' + err.message); });
+}
+
+// Init
+renderLog();
+if (!cameraSupported()){
+  document.getElementById('camUnsupported').classList.add('show');
+}
+</script>
+</body>
+</html>
