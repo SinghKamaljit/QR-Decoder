@@ -73,6 +73,7 @@
   .dir-pill.in{background:rgba(52,211,153,.15);color:var(--accent2);}
   .dir-pill.out{background:rgba(245,158,11,.15);color:var(--warn);}
   .log-empty{text-align:center;color:var(--muted);font-size:0.85rem;padding:24px 10px;}
+  .log-reminder{background:rgba(245,158,11,.12);border:1px solid var(--warn);color:var(--warn);border-radius:10px;padding:10px 12px;font-size:0.8rem;margin-bottom:14px;text-align:center;}
 </style>
 </head>
 <body>
@@ -146,6 +147,7 @@
     <div class="log-stat"><div class="n" id="statIn">0</div><div class="l">Inside now</div></div>
     <div class="log-stat"><div class="n" id="statToday">0</div><div class="l">Scans today</div></div>
   </div>
+  <div class="log-reminder" id="logReminder" style="display:none;"></div>
   <div id="logTableWrap">
     <table id="logTable" style="display:none;">
       <thead><tr><th>Name</th><th>ID</th><th>Dir.</th><th>Time</th></tr></thead>
@@ -154,7 +156,10 @@
     <div class="log-empty" id="logEmpty">No entries logged yet. Scan a card above to begin.</div>
   </div>
   <div class="btn-row">
-    <button class="btn btn-secondary" onclick="downloadLogImage()">Export Log as Image</button>
+    <button class="btn btn-success" onclick="downloadLogCSV()">Export as CSV</button>
+    <button class="btn btn-secondary" onclick="downloadLogImage()">Export as Image</button>
+  </div>
+  <div class="btn-row">
     <button class="btn btn-danger" onclick="clearLog()">Clear Log</button>
   </div>
   <div class="note">Log is stored only on this device (browser local storage) — nothing is uploaded anywhere.</div>
@@ -620,6 +625,15 @@ function renderLog(){
   const body = document.getElementById('logTableBody');
   const table = document.getElementById('logTable');
   const empty = document.getElementById('logEmpty');
+  const reminder = document.getElementById('logReminder');
+
+  const REMINDER_THRESHOLD = 500;
+  if (log.length >= REMINDER_THRESHOLD){
+    reminder.textContent = '⚠️ ' + log.length + ' entries on this device. Consider exporting a CSV backup and clearing the log to keep things fast and safe from accidental loss.';
+    reminder.style.display = 'block';
+  } else {
+    reminder.style.display = 'none';
+  }
 
   if (log.length === 0){
     table.style.display = 'none';
@@ -668,6 +682,34 @@ function clearLog(){
   if (!confirm('Clear the entire gate log on this device? This cannot be undone.')) return;
   localStorage.removeItem(LOG_KEY);
   renderLog();
+}
+
+function csvEscape(val){
+  const str = val == null ? '' : String(val);
+  if (/[",\n]/.test(str)) return '"' + str.replace(/"/g, '""') + '"';
+  return str;
+}
+
+function downloadLogCSV(){
+  const log = getLog();
+  if (log.length === 0){
+    showToast('No log entries to export yet.');
+    return;
+  }
+  const header = ['Name','ID','Phone','Direction','Timestamp (ISO)','Date','Time'];
+  const rows = log.map(function(e){
+    const d = new Date(e.ts);
+    return [e.name, e.id, e.phone || '', e.direction, e.ts, d.toLocaleDateString(), d.toLocaleTimeString()];
+  });
+  const csvLines = [header].concat(rows).map(function(r){ return r.map(csvEscape).join(','); });
+  const csvContent = csvLines.join('\r\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'gate-log-' + new Date().toISOString().slice(0,10) + '.csv';
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function downloadLogImage(){
