@@ -81,7 +81,11 @@
   <h1>Identity Decoder</h1>
   <div class="subtitle">Restricted use — local body records only</div>
 
-  <button class="btn btn-primary" id="scanToggleBtn" onclick="toggleScan()">&#128247; Scan QR Code</button>
+  <div class="btn-row">
+    <button class="btn btn-primary" id="scanToggleBtn" onclick="toggleScan()" style="margin-top:0;">&#128247; Scan QR Code</button>
+    <button class="btn btn-secondary" onclick="document.getElementById('galleryInput').click()" style="margin-top:0;">&#128193; From Gallery</button>
+  </div>
+  <input type="file" id="galleryInput" accept="image/*" style="display:none;" onchange="handleGalleryImage(event)">
   <div class="cam-unsupported" id="camUnsupported">Camera scanning needs HTTPS and a browser with camera access (Samsung Internet or Chrome work well). You can still enter a code manually below.</div>
 
   <div class="scan-area" id="scanArea">
@@ -384,6 +388,37 @@ function scanLoop(){
     }
   }
   requestAnimationFrame(scanLoop);
+}
+
+function handleGalleryImage(event){
+  const file = event.target.files[0];
+  event.target.value = ''; // allow re-selecting the same file later
+  if (!file) return;
+
+  if (scanning) stopScan();
+
+  const reader = new FileReader();
+  reader.onload = function(e){
+    const img = new Image();
+    img.onload = function(){
+      const canvas = document.getElementById('scanCanvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(imageData.data, imageData.width, imageData.height);
+      if (code && code.data){
+        handleScannedText(code.data);
+      } else {
+        showToast('No QR code found in that image.');
+      }
+    };
+    img.onerror = function(){ showToast('Could not read that image file.'); };
+    img.src = e.target.result;
+  };
+  reader.onerror = function(){ showToast('Could not read that image file.'); };
+  reader.readAsDataURL(file);
 }
 
 function handleScannedText(text){
