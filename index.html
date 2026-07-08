@@ -86,6 +86,7 @@
     <button class="btn btn-secondary" onclick="document.getElementById('galleryInput').click()" style="margin-top:0;">&#128193; From Gallery</button>
   </div>
   <input type="file" id="galleryInput" accept="image/*" style="display:none;" onchange="handleGalleryImage(event)">
+  <div class="scan-hint" id="scanStatus" style="display:none;">&#128269; Scanning image for the QR code — checking full photo and zoomed-in regions, this can take a few seconds…</div>
   <div class="cam-unsupported" id="camUnsupported">Camera scanning needs HTTPS and a browser with camera access (Samsung Internet or Chrome work well). You can still enter a code manually below.</div>
 
   <div class="scan-area" id="scanArea">
@@ -388,13 +389,100 @@ function scanLoop(){
     const ctx = canvas.getContext('2d');
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const code = jsQR(imageData.data, imageData.width, imageData.height);
+    const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
     if (code && code.data){
       handleScannedText(code.data);
       return; // pause loop until user confirms / cancels
     }
   }
   requestAnimationFrame(scanLoop);
+}
+
+/* ---- Multi-region still-image scan: tries the whole photo, then
+   progressively finer overlapping tiles, so a small QR sitting inside
+   a photo of the full ID card still gets found (effectively an
+   automatic digital zoom toward wherever the code is). ---- */
+
+function imageToCanvas(img){
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth;
+  c.height = img.naturalHeight;
+  c.getContext('2d').drawImage(img, 0, 0);
+  return c;
+}
+
+function cropCanvas(srcCanvas, x, y, w, h){
+  const c = document.createElement('canvas');
+  c.width = Math.round(w);
+  c.height = Math.round(h);
+  c.getContext('2d').drawImage(srcCanvas, x, y, w, h, 0, 0, c.width, c.height);
+  return c;
+}
+
+// Caps a canvas to a max side length so per-tile decode stays fast,
+// without losing enough resolution to read the QR's modules.
+function capResolution(canvas, maxDim){
+  const largest = Math.max(canvas.width, canvas.height);
+  if (largest <= maxDim) return canvas;
+  const scale = maxDim / largest;
+  const c = document.createElement('canvas');
+  c.width = Math.round(canvas.width * scale);
+  c.height = Math.round(canvas.height * scale);
+  c.getContext('2d').drawImage(canvas, 0, 0, c.width, c.height);
+  return c;
+}
+
+function decodeCanvas(canvas){
+  const ctx = canvas.getContext('2d');
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const result = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
+  return result && result.data ? result.data : null;
+}
+
+// Builds an NxN grid of overlapping tile rectangles covering W x H.
+function buildGridTiles(W, H, n, overlapFrac){
+  const baseW = W / n, baseH = H / n;
+  const tw = Math.min(W, baseW * (1 + overlapFrac));
+  const th = Math.min(H, baseH * (1 + overlapFrac));
+  const tiles = [];
+  for (let iy = 0; iy < n; iy++){
+    for (let ix = 0; ix < n; ix++){
+      let x = ix * baseW - (tw - baseW) / 2;
+      let y = iy * baseH - (th - baseH) / 2;
+      x = Math.max(0, Math.min(W - tw, x));
+      y = Math.max(0, Math.min(H - th, y));
+      tiles.push({ x, y, w: tw, h: th });
+    }
+  }
+  return tiles;
+}
+
+function scanImageForQR(img){
+  const full = imageToCanvas(img);
+
+  // 1. Whole image, resolution-capped for speed
+  let text = decodeCanvas(capResolution(full, 1600));
+  if (text) return text;
+
+  // 2. A slightly different downscale — jsQR's thresholding sometimes
+  //    catches a code at one resolution that it misses at another
+  text = decodeCanvas(capResolution(full, 900));
+  if (text) return text;
+
+  // 3. Overlapping quadrants, then overlapping ninths — each tile is
+  //    cropped from the full-resolution source, so the QR effectively
+  //    gets bigger and sharper the finer the grid gets
+  for (const n of [2, 3, 4]){
+    const tiles = buildGridTiles(full.width, full.height, n, 0.2);
+    for (const t of tiles){
+      if (t.w < 60 || t.h < 60) continue;
+      const tile = cropCanvas(full, t.x, t.y, t.w, t.h);
+      text = decodeCanvas(capResolution(tile, 1200));
+      if (text) return text;
+    }
+  }
+
+  return null;
 }
 
 function handleGalleryImage(event){
@@ -404,27 +492,32 @@ function handleGalleryImage(event){
 
   if (scanning) stopScan();
 
+  const statusEl = document.getElementById('scanStatus');
+  statusEl.style.display = 'block';
+  document.getElementById('errorBox').classList.remove('show');
+
   const reader = new FileReader();
   reader.onload = function(e){
     const img = new Image();
     img.onload = function(){
-      const canvas = document.getElementById('scanCanvas');
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const code = jsQR(imageData.data, imageData.width, imageData.height);
-      if (code && code.data){
-        handleScannedText(code.data);
-      } else {
-        showError('No QR code found in that image. Try a clearer, well-lit, straight-on photo of just the QR square.');
-      }
+      // Let the "scanning…" message actually paint before the
+      // synchronous tiled search runs and blocks the main thread.
+      setTimeout(function(){
+        let text = null;
+        try { text = scanImageForQR(img); }
+        catch (err){ /* fall through to not-found message */ }
+        statusEl.style.display = 'none';
+        if (text){
+          handleScannedText(text);
+        } else {
+          showError('No QR code found, even after checking the full photo and multiple zoomed-in regions. Try a straighter, closer, glare-free photo of the card.');
+        }
+      }, 30);
     };
-    img.onerror = function(){ showToast('Could not read that image file.'); };
+    img.onerror = function(){ statusEl.style.display = 'none'; showToast('Could not read that image file.'); };
     img.src = e.target.result;
   };
-  reader.onerror = function(){ showToast('Could not read that image file.'); };
+  reader.onerror = function(){ statusEl.style.display = 'none'; showToast('Could not read that image file.'); };
   reader.readAsDataURL(file);
 }
 
